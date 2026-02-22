@@ -2,6 +2,7 @@ from rich.console import Console as PreConsole
 import os
 from configparser import ConfigParser
 import sys
+import shutil as su
 
 class EmptyCommand(Exception):
     pass
@@ -60,12 +61,22 @@ class Manager:
         actions = {
             "list": {
                 "description": "",
-                "flag_index": [],
+                "flag_index": {},
                 "max_params": 0,
                 "min_params": 0,
                 "usage": "command [blue]list[/blue]",
                 "function": self.__list
-            }
+            },
+            "add": {
+                "description": "",
+                "flag_index": {
+                    "-a": "application-project"
+                },
+                "max_params": 1,
+                "min_params": 1,
+                "usage": "command [blue]add[/blue] <project-name> <-a application-project>",
+                "function": self.__add
+            },
         }
         
         return actions
@@ -85,13 +96,25 @@ class Manager:
             if not flag in flag_index:
                 self.__raise(self.config.get("feedback", "incorrect_flags"))
     
+    def __add(self, params: list, flags:list):
+        self.__validate("add", params, flags)
+        
+        project_name = params[0]
+        path = "app_path" if "-a" in flags else "cli_path"
+        
+        destination = self.config.get("general", path) + rf"\{project_name.title().replace(" ", "")}"
+        source = self.config.get("general", "project_template_path")
+        
+        su.copytree(source, destination)
+        
+        self.console.print(f"[green]Sucessfully added {project_name.title().replace(" ", "")} to {"Application" if path == "app_path" else "CommandLineInterface"} projects folder")
+    
     def __list(self, params: list, flags: list):
         self.__validate("list", params, flags)
         
         for file in os.listdir(self.config.get("general", "scripts_path")):
             self.console.print(f"[yellow]{file.replace(".bat", "")}[/yellow]")
         
-    
     def run(self):
         command, params, flags = self.arg_parser.get_details()
         
@@ -99,12 +122,3 @@ class Manager:
             self.__raise(f"[blue]'{command}'[/blue]" + " " + self.config.get("feedback", "incorrect_command"))
         
         self.actions[command]["function"](params, flags)
-    
-        
-        
-        
-        
-                
-                
-        
-        
