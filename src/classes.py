@@ -1,74 +1,110 @@
-import sys
 from rich.console import Console as PreConsole
-from rich.prompt import Prompt
 import os
 from configparser import ConfigParser
+import sys
+
+class EmptyCommand(Exception):
+    pass
 
 class Console(PreConsole):
-    def clear(self):
+    def clear():
         os.system("cls")
 
-class Config():
-    def __init__(self):
-        self.config = ConfigParser()
-        read_files = self.config.read("assets/config/config.cfg")
+class Config:
+    def __init__(self, config_path: str):
+        self.parser = ConfigParser()
         
+        read_files = self.parser.read(config_path)
         if not read_files:
-            raise FileNotFoundError("Config was not found.")
+            raise FileNotFoundError("Config was not found")
     
-    def get_config(self):
-        return self.config
-
+    def get(self, section, value):
+        return self.parser.get(section, value)
+            
 class ArgParser:
-    def __init__(self, args: list):
-        self.args = args
+    def __init__(self, arg_array: list):
+        self.valid = True
+        
+        self.args = arg_array.copy()
         self.args.pop(0)
         
-        self.flags = self.__catch_flags()
+        if len(self.args) == 0:
+            raise EmptyCommand
         
         self.command = self.args[0]
         self.args.pop(0)
-    
-    def __catch_flags(self):
-        flags = []
         
-        for arg in self.args:
-            if "-" in arg:
-                flags.append(arg)
-                self.args.pop(self.args.index(arg))
+        self.params = [params for params in self.args if "-" not in params]
+        self.flags = [flag for flag in self.args if "-" in flag]
         
-        return flags
-    
-    def get_args(self) -> tuple[str, list, list]:
-        return (self.command, self.args, self.flags)
-    
+    def get_details(self) -> tuple[str, list, list]:
+        return self.command, self.params, self.flags
+
 class Manager:
-    def __init__(self, args):
-        self.arg_parser = ArgParser(args)
+    def __init__(self, args: list):
         self.console = Console()
-        self.config = Config()
+        self.config = Config("assets/config/config.cfg")
         
-        self.actions = self.__actions()
+        try:
+            self.arg_parser = ArgParser(args)
+        except EmptyCommand:
+            self.__raise(self.config.get("feedback", "no_command"))
+        
+        self.actions = self.__init_actions()
     
-    def __actions(self):
+    def __raise(self, message):
+        self.console.print(f"[red]Error[/red]: {message}")
+        sys.exit()
+        
+    def __init_actions(self) -> dict:
         actions = {
             "list": {
-                "description": "List all available user-made commands",
+                "description": "",
+                "flag_index": [],
+                "max_params": 0,
+                "min_params": 0,
+                "usage": "command [blue]list[/blue]",
                 "function": self.__list
             }
         }
         
         return actions
-
-    def __list(self, *void):
-        for script in os.listdir(self.config.get_config().get("general", "scripts_path")):
-            self.console.print(f"[yellow]{script.replace(".bat", "")}[/yellow]")
+    
+    def __validate(self, func_name: str, params: list, flags:list):
+        requirements = self.actions[func_name]
         
+        max = requirements["max_params"]
+        min = requirements["min_params"]
+        
+        if len(params) > max or len(params) < min: 
+            self.__raise(self.config.get("feedback", "more_than_max"))
+        
+        flag_index = requirements["flag_index"]
+        
+        for flag in flags:
+            if not flag in flag_index:
+                self.__raise(self.config.get("feedback", "incorrect_flags"))
+    
+    def __list(self, params: list, flags: list):
+        self.__validate("list", params, flags)
+        
+        for file in os.listdir(self.config.get("general", "scripts_path")):
+            self.console.print(f"[yellow]{file.replace(".bat", "")}[/yellow]")
+        
+    
     def run(self):
-        args = self.arg_parser.get_args()
+        command, params, flags = self.arg_parser.get_details()
         
-        command = args[0].lower().strip()
-        params = args[1]
-        flags = args[2]
+        if not command in self.actions:
+            self.__raise(f"[blue]'{command}'[/blue]" + " " + self.config.get("feedback", "incorrect_command"))
         
-        self.actions[command]["function"](params)
+        self.actions[command]["function"](params, flags)
+    
+        
+        
+        
+        
+                
+                
+        
+        
