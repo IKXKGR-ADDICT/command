@@ -1,0 +1,2 @@
+class EmptyCommand(Exception):
+    pass

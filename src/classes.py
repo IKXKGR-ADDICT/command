@@ -1,124 +1,120 @@
 from rich.console import Console as PreConsole
+from rich.table import Table
 import os
 from configparser import ConfigParser
 import sys
 import shutil as su
-
-class EmptyCommand(Exception):
-    pass
-
+from exceptions import EmptyCommand
+from typing import Unpack, TypedDict, Callable
+    
 class Console(PreConsole):
-    def clear():
+    def clear(self):
         os.system("cls")
+    
+    def pad_print(self, renderable):
+        "Normal print method but adds newlines after and before the string"
+        
+        self.print("")
+        self.print(renderable)
+        self.print("")
 
 class Config:
     def __init__(self, config_path: str):
-        self.parser = ConfigParser()
+        self.__parser = ConfigParser()
         
-        read_files = self.parser.read(config_path)
+        read_files = self.__parser.read(config_path)
         if not read_files:
             raise FileNotFoundError("Config was not found")
     
-    def get(self, section, value):
-        return self.parser.get(section, value)
-            
+    def __call__(self, section:str, value:str):
+        return self.__parser.get(section, value)
+    
 class ArgParser:
     def __init__(self, arg_array: list):
-        self.valid = True
+        self.__valid = True
         
-        self.args = arg_array.copy()
-        self.args.pop(0)
+        self.__args = arg_array.copy()
+        self.__args.pop(0)
         
-        if len(self.args) == 0:
+        if len(self.__args) == 0:
             raise EmptyCommand
         
-        self.command = self.args[0]
-        self.args.pop(0)
+        self.__command = self.__args[0]
+        self.__args.pop(0)
         
-        self.params = [params for params in self.args if "-" not in params]
-        self.flags = [flag for flag in self.args if "-" in flag]
+        self.__params = [params for params in self.__args if "-" not in params]
+        self.__flags = [flag for flag in self.__args if "-" in flag]
         
     def get_details(self) -> tuple[str, list, list]:
-        return self.command, self.params, self.flags
+        return self.__command, self.__params, self.__flags
 
+class CommandArguments(TypedDict):
+    console: Console
+    params: list
+    flags: list
+    
+class Command:
+    def __init__(self, name:str, usage:str, func: Callable, flag_index: dict = {}, max_params:int = 0, min_params:int = 0, description:str = ""):
+        self.name = name
+        self.usage = usage
+        self.flag_index = flag_index
+        self.max_params = max_params
+        self.min_params = min_params
+        self.description = description
+        
+        self.__func = func
+    
+    def __call__(self, params: list = [], flags: list = [], console: Console = None):
+        self.__func(console = console, params = params, flags = flags)
+    
 class Manager:
     def __init__(self, args: list):
-        self.console = Console()
-        self.config = Config("assets/config/config.cfg")
+        self.__config = Config("assets/config/config.cfg")
+        self.__console = Console()
         
         try:
-            self.arg_parser = ArgParser(args)
+            self.__arg_parser = ArgParser(args)
         except EmptyCommand:
-            self.__raise(self.config.get("feedback", "no_command"))
+            self.__invalid_command()
         
-        self.actions = self.__init_actions()
+        self.__menu: dict[str, Command] = self.__build_menu()
     
-    def __raise(self, message):
-        self.console.print(f"[red]Error[/red]: {message}")
-        sys.exit()
-        
-    def __init_actions(self) -> dict:
-        actions = {
-            "list": {
-                "description": "",
-                "flag_index": {},
-                "max_params": 0,
-                "min_params": 0,
-                "usage": "command [blue]list[/blue]",
-                "function": self.__list
-            },
-            "add": {
-                "description": "",
-                "flag_index": {
-                    "-a": "application-project"
-                },
-                "max_params": 1,
-                "min_params": 1,
-                "usage": "command [blue]add[/blue] <project-name> <-a application-project>",
-                "function": self.__add
-            },
+    def __build_menu(self) -> dict[str, Command]:
+        return {
+            "help": Command(
+                name="help",
+                usage="help",
+                func=self.__help,
+                description="Shows a list of all commands available and their parameters"
+            ),
         }
-        
-        return actions
     
-    def __validate(self, func_name: str, params: list, flags:list):
-        requirements = self.actions[func_name]
+    def __invalid_command(self):
+        self.__console.pad_print(self.__config("feedback", "no_command"))
         
-        max = requirements["max_params"]
-        min = requirements["min_params"]
+    def __build_help_table(self) -> Table:
+        table = Table(box=None, show_header=False)
         
-        if len(params) > max or len(params) < min: 
-            self.__raise(self.config.get("feedback", "more_than_max"))
+        table.add_column("name")
+        table.add_column ("description")
         
-        flag_index = requirements["flag_index"]
+        for command in self.__menu.values():
+            table.add_row(command.name, command.description)
         
-        for flag in flags:
-            if not flag in flag_index:
-                self.__raise(self.config.get("feedback", "incorrect_flags"))
+        return table
     
-    def __add(self, params: list, flags:list):
-        self.__validate("add", params, flags)
-        
-        project_name = params[0]
-        path = "app_path" if "-a" in flags else "cli_path"
-        
-        destination = self.config.get("general", path) + rf"\{project_name.title().replace(" ", "")}"
-        source = self.config.get("general", "project_template_path")
-        
-        su.copytree(source, destination)
-        
-        self.console.print(f"[green]Sucessfully added {project_name.title().replace(" ", "")} to {"Application" if path == "app_path" else "CommandLineInterface"} projects folder")
+    def __color(self, string: str, color: str = ""):
+        return f"[{color}]{string}[/{color}]"
     
-    def __list(self, params: list, flags: list):
-        self.__validate("list", params, flags)
+    def __help(self, **arguments: Unpack[CommandArguments]):
+        console = arguments["console"]
         
-        for file in os.listdir(self.config.get("general", "scripts_path")):
-            self.console.print(f"[yellow]{file.replace(".bat", "")}[/yellow]")
-        
+        console.pad_print(self.__build_help_table())
+    
     def run(self):
-        command, params, flags = self.arg_parser.get_details()
-        
-        if not command in self.actions:
-            self.__raise(f"[blue]'{command}'[/blue]" + " " + self.config.get("feedback", "incorrect_command"))
-        
-        self.actions[command]["function"](params, flags)
+        command, params, flags = self.__arg_parser.get_details()
+    
+        try:
+            self.__menu[command](console=self.__console, params=params, flags=flags)
+        except KeyError:
+            self.__console.pad_print(self.__config("feedback", "incorrect_command"))
