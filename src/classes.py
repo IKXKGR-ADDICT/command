@@ -87,10 +87,22 @@ class Manager:
                 func=self.__help,
                 description="Shows a list of all commands available and their parameters"
             ),
+            "list": Command(
+                name="list",
+                usage="list",
+                func=self.__list,
+                description="Shows a list of all custom user scripts installed on this computer"
+            )
         }
     
     def __invalid_command(self):
         self.__console.pad_print(self.__config("feedback", "no_command"))
+    
+    def __build_generic_table(self) -> Table:
+        table = Table(box=None, show_header=False)
+        table.add_column("field1")
+        
+        return table
         
     def __build_help_table(self) -> Table:
         table = Table(box=None, show_header=False)
@@ -99,13 +111,22 @@ class Manager:
         table.add_column ("description")
         
         for command in self.__menu.values():
-            table.add_row(command.name, command.description)
+            table.add_row(self.__color(command.name, "yellow"), command.description)
         
         return table
     
     def __color(self, string: str, color: str = ""):
         return f"[{color}]{string}[/{color}]"
-    
+
+    def __list(self, **arguments: Unpack[CommandArguments]):
+        table = self.__build_generic_table()
+        console = arguments["console"]
+        
+        for file in os.listdir(self.__config("general", "scripts_path")):
+            table.add_row(self.__color(file.replace(".bat", ""), "yellow"))
+        
+        console.pad_print(table)
+
     def __help(self, **arguments: Unpack[CommandArguments]):
         console = arguments["console"]
         
